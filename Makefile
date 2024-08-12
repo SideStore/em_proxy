@@ -1,3 +1,5 @@
+SIDESTORE_REPO ?= ../SideStore
+SKIP_SIM ?= false
 TARGET="em_proxy"
 
 add_targets:
@@ -7,21 +9,32 @@ add_targets:
 build:
 	@echo "build aarch64-apple-ios"
 	@cargo build --release --target aarch64-apple-ios
-	@echo "lipo"
-	@lipo -create \
-		-output target/lib$(TARGET)-ios.a \
-		target/aarch64-apple-ios/release/lib$(TARGET).a
+	@cp target/aarch64-apple-ios/release/lib$(TARGET).a target/lib$(TARGET)-ios.a
 
+ifeq ($(SKIP_SIM),false)
 	@echo "build aarch64-apple-ios-sim"
 	@cargo build --release --target aarch64-apple-ios-sim
 
 	@echo "build x86_64-apple-ios"
 	@cargo build --release --target x86_64-apple-ios
 
+	@echo "lipo"
 	@lipo -create \
 		-output target/lib$(TARGET)-sim.a \
 		target/aarch64-apple-ios-sim/release/lib$(TARGET).a \
 		target/x86_64-apple-ios/release/lib$(TARGET).a
+else
+	@echo "skipping sim builds"
+endif
+
+package: build
+	@echo "package"
+	@swift-bridge-cli create-package \
+		--bridges-dir ./generated \
+		--out-dir ../EMPackage \
+		--ios target/libem_proxy-ios.a \
+		--simulator target/libem_proxy-sim.a \
+		--name EMProxy
 
 clean:
 	@echo "clean"
@@ -124,3 +137,5 @@ zip: xcframework
         rm $(TARGET).xcframework.zip; \
     fi
 	zip -r $(TARGET).xcframework.zip $(TARGET).xcframework
+
+.PHONY: build

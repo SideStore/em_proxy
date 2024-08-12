@@ -1,11 +1,15 @@
 // Jackson Coxson
 use std::env;
-use cbindgen;
+use std::path::PathBuf;
 
 fn main() {
-    let crate_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
+  let out_dir = PathBuf::from("./generated");
 
-    cbindgen::generate(crate_dir)
-      .expect("Unable to generate C bindings")
-      .write_to_file("em_proxy.h");
+  let bridges = vec!["src/lib.rs"];
+  for path in &bridges {
+      println!("cargo:rerun-if-changed={}", path);
+  }
+
+  swift_bridge_build::parse_bridges(bridges)
+      .write_all_concatenated(out_dir, env!("CARGO_PKG_NAME"));
 }
