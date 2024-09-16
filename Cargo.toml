@@ -11,8 +11,8 @@ path = "src/run.rs"
 
 [dependencies]
 boringtun = { version = "0.4.0" }
-libc = { version = "0.2.126" }
 once_cell = { version = "1.15.0" }
+swift-bridge = { git = "https://github.com/naturecodevoid/swift-bridge" } # TODO: change to official repo once https://github.com/chinedufn/swift-bridge/pull/209 is merged
 
 simple_logger = { version = "2.3.0" }
 log = { version = "0.4.17" }
@@ -21,7 +21,7 @@ log = { version = "0.4.17" }
 rand = { version = "*" }
 
 [build-dependencies]
-cbindgen = "0.20.0"
+swift-bridge-build = { git = "https://github.com/naturecodevoid/swift-bridge" } # TODO: change to official repo once https://github.com/chinedufn/swift-bridge/pull/209 is merged
 
 [lib]
 crate-type = ["staticlib"]
