@@ -1,3 +1,6 @@
+import Foundation
+import libem_proxy
+
 public func start_emotional_damage<GenericToRustStr: ToRustStr>(_ bind_addr: GenericToRustStr) -> Optional<EMPError> {
     return bind_addr.toRustStr({ bind_addrAsRustStr in
         __swift_bridge__$start_emotional_damage(bind_addrAsRustStr).intoSwiftRepr()
@@ -94,6 +97,10 @@ extension EMPError: Vectorizable {
     public static func vecOfSelfGetMut(vecPtr: UnsafeMutableRawPointer, index: UInt) -> Optional<Self> {
         let maybeEnum = __swift_bridge__$Vec_EMPError$get_mut(vecPtr, index)
         return maybeEnum.intoSwiftRepr()
+    }
+
+    public static func vecOfSelfAsPtr(vecPtr: UnsafeMutableRawPointer) -> UnsafePointer<Self> {
+        UnsafePointer<Self>(OpaquePointer(__swift_bridge__$Vec_EMPError$as_ptr(vecPtr)))
     }
 
     public static func vecOfSelfLen(vecPtr: UnsafeMutableRawPointer) -> UInt {

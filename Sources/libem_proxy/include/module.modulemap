@@ -1,0 +1,6 @@
+module libem_proxy {
+	header "../em_proxy.h"
+    header "../SwiftBridgeCore.h"
+
+	export *
+}

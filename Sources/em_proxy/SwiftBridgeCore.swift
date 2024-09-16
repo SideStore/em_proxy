@@ -1,4 +1,5 @@
 import Foundation
+import libem_proxy
 
 extension RustString {
     public func toString() -> String {
@@ -35,10 +36,6 @@ public protocol IntoRustString {
     func intoRustString() -> RustString;
 }
 
-public protocol ToRustStr {
-    func toRustStr<T> (_ withUnsafeRustStr: (RustStr) -> T) -> T;
-}
-
 extension String: IntoRustString {
     public func intoRustString() -> RustString {
         // TODO: When passing an owned Swift std String to Rust we've being wasteful here in that
@@ -70,6 +67,19 @@ func optionalStringIntoRustString<S: IntoRustString>(_ string: Optional<S>) -> R
     } else {
         return nil
     }
+}
+
+/// Used to safely get a pointer to a sequence of utf8 bytes, represented as a `RustStr`.
+///
+/// For example, the Swift `String` implementation of the `ToRustStr` protocol does the following:
+/// 1. Use Swift's `String.utf8.withUnsafeBufferPointer` to get a pointer to the strings underlying
+///    utf8 bytes.
+/// 2. Construct a `RustStr` that points to these utf8 bytes. This is safe because `withUnsafeBufferPointer`
+///    guarantees that the buffer pointer will be valid for the duration of the `withUnsafeBufferPointer`
+///    callback.
+/// 3. Pass the `RustStr` to the closure that was passed into `RustStr.toRustStr`.
+public protocol ToRustStr {
+    func toRustStr<T> (_ withUnsafeRustStr: (RustStr) -> T) -> T;
 }
 
 extension String: ToRustStr {
@@ -123,6 +133,10 @@ public class RustVec<T: Vectorizable> {
 
     public func get(index: UInt) -> Optional<T.SelfRef> {
          T.vecOfSelfGet(vecPtr: ptr, index: index)
+    }
+
+    public func as_ptr() -> UnsafePointer<T.SelfRef> {
+        UnsafePointer<T.SelfRef>(OpaquePointer(T.vecOfSelfAsPtr(vecPtr: ptr)))
     }
 
     /// Rust returns a UInt, but we cast to an Int because many Swift APIs such as
@@ -203,6 +217,8 @@ public protocol Vectorizable {
 
     static func vecOfSelfGetMut(vecPtr: UnsafeMutableRawPointer, index: UInt) -> Optional<SelfRefMut>
 
+    static func vecOfSelfAsPtr(vecPtr: UnsafeMutableRawPointer) -> UnsafePointer<SelfRef>
+
     static func vecOfSelfLen(vecPtr: UnsafeMutableRawPointer) -> UInt
 }
 
@@ -244,6 +260,10 @@ extension UInt8: Vectorizable {
         } else {
             return nil
         }
+    }
+
+    public static func vecOfSelfAsPtr(vecPtr: UnsafeMutableRawPointer) -> UnsafePointer<Self> {
+        UnsafePointer<Self>(OpaquePointer(__swift_bridge__$Vec_u8$as_ptr(vecPtr)))
     }
 
     public static func vecOfSelfLen(vecPtr: UnsafeMutableRawPointer) -> UInt {
@@ -291,6 +311,10 @@ extension UInt16: Vectorizable {
         }
     }
 
+    public static func vecOfSelfAsPtr(vecPtr: UnsafeMutableRawPointer) -> UnsafePointer<Self> {
+        UnsafePointer<Self>(OpaquePointer(__swift_bridge__$Vec_u16$as_ptr(vecPtr)))
+    }
+
     public static func vecOfSelfLen(vecPtr: UnsafeMutableRawPointer) -> UInt {
         __swift_bridge__$Vec_u16$len(vecPtr)
     }
@@ -334,6 +358,10 @@ extension UInt32: Vectorizable {
         } else {
             return nil
         }
+    }
+
+    public static func vecOfSelfAsPtr(vecPtr: UnsafeMutableRawPointer) -> UnsafePointer<Self> {
+        UnsafePointer<Self>(OpaquePointer(__swift_bridge__$Vec_u32$as_ptr(vecPtr)))
     }
 
     public static func vecOfSelfLen(vecPtr: UnsafeMutableRawPointer) -> UInt {
@@ -381,6 +409,10 @@ extension UInt64: Vectorizable {
         }
     }
 
+    public static func vecOfSelfAsPtr(vecPtr: UnsafeMutableRawPointer) -> UnsafePointer<Self> {
+        UnsafePointer<Self>(OpaquePointer(__swift_bridge__$Vec_u64$as_ptr(vecPtr)))
+    }
+
     public static func vecOfSelfLen(vecPtr: UnsafeMutableRawPointer) -> UInt {
         __swift_bridge__$Vec_u64$len(vecPtr)
     }
@@ -424,6 +456,10 @@ extension UInt: Vectorizable {
         } else {
             return nil
         }
+    }
+
+    public static func vecOfSelfAsPtr(vecPtr: UnsafeMutableRawPointer) -> UnsafePointer<Self> {
+        UnsafePointer<Self>(OpaquePointer(__swift_bridge__$Vec_usize$as_ptr(vecPtr)))
     }
 
     public static func vecOfSelfLen(vecPtr: UnsafeMutableRawPointer) -> UInt {
@@ -471,6 +507,10 @@ extension Int8: Vectorizable {
         }
     }
 
+    public static func vecOfSelfAsPtr(vecPtr: UnsafeMutableRawPointer) -> UnsafePointer<Self> {
+        UnsafePointer<Self>(OpaquePointer(__swift_bridge__$Vec_i8$as_ptr(vecPtr)))
+    }
+
     public static func vecOfSelfLen(vecPtr: UnsafeMutableRawPointer) -> UInt {
         __swift_bridge__$Vec_i8$len(vecPtr)
     }
@@ -514,6 +554,10 @@ extension Int16: Vectorizable {
         } else {
             return nil
         }
+    }
+
+    public static func vecOfSelfAsPtr(vecPtr: UnsafeMutableRawPointer) -> UnsafePointer<Self> {
+        UnsafePointer<Self>(OpaquePointer(__swift_bridge__$Vec_i16$as_ptr(vecPtr)))
     }
 
     public static func vecOfSelfLen(vecPtr: UnsafeMutableRawPointer) -> UInt {
@@ -561,6 +605,10 @@ extension Int32: Vectorizable {
         }
     }
 
+    public static func vecOfSelfAsPtr(vecPtr: UnsafeMutableRawPointer) -> UnsafePointer<Self> {
+        UnsafePointer<Self>(OpaquePointer(__swift_bridge__$Vec_i32$as_ptr(vecPtr)))
+    }
+
     public static func vecOfSelfLen(vecPtr: UnsafeMutableRawPointer) -> UInt {
         __swift_bridge__$Vec_i32$len(vecPtr)
     }
@@ -604,6 +652,10 @@ extension Int64: Vectorizable {
         } else {
             return nil
         }
+    }
+
+    public static func vecOfSelfAsPtr(vecPtr: UnsafeMutableRawPointer) -> UnsafePointer<Self> {
+        UnsafePointer<Self>(OpaquePointer(__swift_bridge__$Vec_i64$as_ptr(vecPtr)))
     }
 
     public static func vecOfSelfLen(vecPtr: UnsafeMutableRawPointer) -> UInt {
@@ -651,6 +703,10 @@ extension Int: Vectorizable {
         }
     }
 
+    public static func vecOfSelfAsPtr(vecPtr: UnsafeMutableRawPointer) -> UnsafePointer<Self> {
+        UnsafePointer<Self>(OpaquePointer(__swift_bridge__$Vec_isize$as_ptr(vecPtr)))
+    }
+
     public static func vecOfSelfLen(vecPtr: UnsafeMutableRawPointer) -> UInt {
         __swift_bridge__$Vec_isize$len(vecPtr)
     }
@@ -694,6 +750,10 @@ extension Bool: Vectorizable {
         } else {
             return nil
         }
+    }
+
+    public static func vecOfSelfAsPtr(vecPtr: UnsafeMutableRawPointer) -> UnsafePointer<Self> {
+        UnsafePointer<Self>(OpaquePointer(__swift_bridge__$Vec_bool$as_ptr(vecPtr)))
     }
 
     public static func vecOfSelfLen(vecPtr: UnsafeMutableRawPointer) -> UInt {
@@ -741,6 +801,10 @@ extension Float: Vectorizable {
         }
     }
 
+    public static func vecOfSelfAsPtr(vecPtr: UnsafeMutableRawPointer) -> UnsafePointer<Self> {
+        UnsafePointer<Self>(OpaquePointer(__swift_bridge__$Vec_f32$as_ptr(vecPtr)))
+    }
+
     public static func vecOfSelfLen(vecPtr: UnsafeMutableRawPointer) -> UInt {
         __swift_bridge__$Vec_f32$len(vecPtr)
     }
@@ -784,6 +848,10 @@ extension Double: Vectorizable {
         } else {
             return nil
         }
+    }
+
+    public static func vecOfSelfAsPtr(vecPtr: UnsafeMutableRawPointer) -> UnsafePointer<Self> {
+        UnsafePointer<Self>(OpaquePointer(__swift_bridge__$Vec_f64$as_ptr(vecPtr)))
     }
 
     public static func vecOfSelfLen(vecPtr: UnsafeMutableRawPointer) -> UInt {
@@ -884,6 +952,10 @@ extension RustString: Vectorizable {
         } else {
             return RustStringRefMut(ptr: pointer!)
         }
+    }
+
+    public static func vecOfSelfAsPtr(vecPtr: UnsafeMutableRawPointer) -> UnsafePointer<RustStringRef> {
+        UnsafePointer<RustStringRef>(OpaquePointer(__swift_bridge__$Vec_RustString$as_ptr(vecPtr)))
     }
 
     public static func vecOfSelfLen(vecPtr: UnsafeMutableRawPointer) -> UInt {
