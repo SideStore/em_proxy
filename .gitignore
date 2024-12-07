@@ -4,3 +4,4 @@ em_proxy.h
 /em_proxy.xcframework
 /em_proxy.xcframework.zip
 /include
+*.a
