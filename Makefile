@@ -18,15 +18,15 @@ RELEASE_FLAGS := --release
 IOS_NATIVE_DEBUG := target/$(ARCH_IOS_NATIVE)/debug/lib$(TARGET).a
 IOS_NATIVE_RELEASE := target/$(ARCH_IOS_NATIVE)/release/lib$(TARGET).a
 IOS_NATIVE_LIPO := target/lib$(TARGET)-ios.a
-NATIVE_LIPO_DEBUG := target/debug/lib$(TARGET)-ios.a
-NATIVE_LIPO_RELEASE := target/release/lib$(TARGET)-ios.a
+LIPO_NATIVE_DEBUG := target/debug/lib$(TARGET)-ios.a
+LIPO_NATIVE_RELEASE := target/release/lib$(TARGET)-ios.a
 
 IOS_SIM_DEBUG := target/$(ARCH_IOS_SIM)/debug/lib$(TARGET).a
 IOS_SIMX86_DEBUG := target/$(ARCH_IOS_SIMX86)/debug/lib$(TARGET).a
 IOS_SIM_RELEASE := target/$(ARCH_IOS_SIM)/release/lib$(TARGET).a
 IOS_SIMX86_RELEASE := target/$(ARCH_IOS_SIMX86)/release/lib$(TARGET).a
-SIM_LIPO_DEBUG := target/debug/lib$(TARGET)-sim.a
-SIM_LIPO_RELEASE := target/release/lib$(TARGET)-sim.a
+LIPO_SIM_DEBUG := target/debug/lib$(TARGET)-sim.a
+LIPO_SIM_RELEASE := target/release/lib$(TARGET)-sim.a
 
 define compile
 $(1):
@@ -46,16 +46,16 @@ $(eval $(call compile,$(IOS_SIM_DEBUG),$(DEBUG_FLAGS),$(ARCH_IOS_SIM)))
 $(eval $(call compile,$(IOS_SIMX86_DEBUG),$(DEBUG_FLAGS),$(ARCH_IOS_SIMX86)))
 $(eval $(call compile,$(IOS_SIM_RELEASE),$(RELEASE_FLAGS),$(ARCH_IOS_SIM)))
 $(eval $(call compile,$(IOS_SIMX86_RELEASE),$(RELEASE_FLAGS),$(ARCH_IOS_SIMX86)))
-$(eval $(call lipo,$(NATIVE_LIPO_DEBUG),$(IOS_NATIVE_DEBUG)))
-$(eval $(call lipo,$(NATIVE_LIPO_RELEASE),$(IOS_NATIVE_RELEASE)))
-$(eval $(call lipo,$(SIM_LIPO_DEBUG),$(IOS_SIM_DEBUG) $(IOS_SIMX86_DEBUG)))
-$(eval $(call lipo,$(SIM_LIPO_RELEASE),$(IOS_SIM_RELEASE) $(IOS_SIMX86_RELEASE)))
+$(eval $(call lipo,$(LIPO_NATIVE_DEBUG),$(IOS_NATIVE_DEBUG)))
+$(eval $(call lipo,$(LIPO_NATIVE_RELEASE),$(IOS_NATIVE_RELEASE)))
+$(eval $(call lipo,$(LIPO_SIM_DEBUG),$(IOS_SIM_DEBUG) $(IOS_SIMX86_DEBUG)))
+$(eval $(call lipo,$(LIPO_SIM_RELEASE),$(IOS_SIM_RELEASE) $(IOS_SIMX86_RELEASE)))
 
-copy-debug: $(NATIVE_LIPO_DEBUG) $(SIM_LIPO_DEBUG)
+copy-debug: $(LIPO_NATIVE_DEBUG) $(LIPO_SIM_DEBUG)
 	$(info Copying $^ -> ./)
 	@cp $^ ./
 
-copy-release: $(NATIVE_LIPO_RELEASE) $(SIM_LIPO_RELEASE)
+copy-release: $(LIPO_NATIVE_RELEASE) $(LIPO_SIM_RELEASE)
 	$(info Copying $^ -> ./)
 	@cp $^ ./
 
@@ -64,28 +64,35 @@ build-release: copy-release
 
 
 define remove-r
-@if [ -d $(1) ]; then $(info Cleaning $(1)) rm -r $(1); fi
+@if [ -d $(1) ]; then echo Cleaning $(1); rm -r $(1); fi
 endef
 
 define remove
-@if [ -f $(1) ]; then $(info Cleaning $(1)) rm $(1); fi
+@if [ -f $(1) ]; then echo Cleaning $(1); rm $(1); fi
 endef
 
-$(TARGET).xcframework: build
-	$(info Building $@)
+define make-xcframework
+$(1): $(2)
+	@echo Building $(1)
 	$(call remove-r,include)
 	@mkdir -p include/$(TARGET)
 	@cp $(TARGET).h module.modulemap include/$(TARGET)/
-	$(call remove-r,$@)
+	$(call remove-r,$(1))
 	@xcodebuild -create-xcframework \
-		-library $(IOS_NATIVE_RELEASE) \
+		-library $(3) \
 		-headers include/ \
-		-library $(SIM_LIPO_RELEASE) \
+		-library $(4) \
 		-headers include/ \
-		-output $@
+		-output $(1)
+endef
 
-$(TARGET)-full.xcframework: build
-	$(info Building $@)
+$(eval $(call make-xcframework,$(TARGET).xcframework,build,$(IOS_NATIVE_DEBUG),$(IOS_SIM_DEBUG)))
+$(eval $(call make-xcframework,$(TARGET)-release.xcframework,build,$(IOS_NATIVE_RELEASE),$(IOS_SIM_RELEASE)))
+
+
+define make-xcframework-full # Idek if this ever worked lol
+$(1): $(2)
+	@echo Building $(1)
 	$(call remove-r,include)
 	@mkdir -p include/$(TARGET)
 	@cp $(TARGET).h module.modulemap include/$(TARGET)/
@@ -95,15 +102,15 @@ $(TARGET)-full.xcframework: build
 	$(call remove-r,target/sim)
 	@mkdir -p target/sim/$(TARGET).framework/Headers
 
-	@cp -r include/** target/ios/$(TARGET).framework/Headers
+	@cp -r include/$(TARGET)/*.* target/ios/$(TARGET).framework/Headers
 	@libtool -static \
 		-o target/ios/$(TARGET).framework/$(TARGET) \
-		$(NATIVE_LIPO_RELEASE)
+		$(3)
 
-	@cp -r include/** target/sim/$(TARGET).framework/Headers
+	@cp -r include/$(TARGET)/*.* target/sim/$(TARGET).framework/Headers
 	@xcrun -sdk iphonesimulator libtool -static \
 		-o target/sim/$(TARGET).framework/$(TARGET) \
-		$(SIM_LIPO_RELEASE)
+		$(4)
 
 	$(call remove-r,$(TARGET).xcframework)
 	@xcodebuild -create-xcframework \
@@ -111,11 +118,17 @@ $(TARGET)-full.xcframework: build
 		-headers include/ \
 		-library target/ios/$(TARGET).framework \
 		-headers include/ \
-		-output $(TARGET).xcframework
+		-output $(1)
+
+endef
+
+$(eval $(call make-xcframework-full,$(TARGET)-full.xcframework,build,$(IOS_NATIVE_DEBUG),$(IOS_SIM_DEBUG)))
+$(eval $(call make-xcframework-full,$(TARGET)-full-release.xcframework,build,$(IOS_NATIVE_RELEASE),$(IOS_SIM_RELEASE)))
+
 
 zip: $(TARGET).xcframework
 	$(call remove,$(TARGET).xcframework.zip)
-	zip -r $(TARGET).xcframework.zip $(TARGET).xcframework
+	zip -r $(TARGET).xcframework.zip $<
 
 
 clean:
