@@ -10,9 +10,10 @@ compile:
 	@# @cargo build --release --target aarch64-apple-ios
 	@cargo build --target aarch64-apple-ios
 	@echo "lipo"
+	
 	@# @lipo -create \
-		-output target/lib$(TARGET)-ios.a \
-		target/aarch64-apple-ios/release/lib$(TARGET).a
+	@# 	-output target/lib$(TARGET)-ios.a \
+	@# 	target/aarch64-apple-ios/release/lib$(TARGET).a
 	@lipo -create \
 		-output target/lib$(TARGET)-ios.a \
 		target/aarch64-apple-ios/debug/lib$(TARGET).a
@@ -26,9 +27,9 @@ compile:
 	@cargo build --target x86_64-apple-ios
 
 	@# @lipo -create \
-		-output target/lib$(TARGET)-sim.a \
-		target/aarch64-apple-ios-sim/release/lib$(TARGET).a \
-		target/x86_64-apple-ios/release/lib$(TARGET).a
+	@# 	-output target/lib$(TARGET)-sim.a \
+	@# 	target/aarch64-apple-ios-sim/release/lib$(TARGET).a \
+	@# 	target/x86_64-apple-ios/release/lib$(TARGET).a
 	@lipo -create \
 		-output target/lib$(TARGET)-sim.a \
 		target/aarch64-apple-ios-sim/debug/lib$(TARGET).a \
