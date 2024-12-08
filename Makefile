@@ -71,7 +71,7 @@ define remove
 @if [ -f $(1) ]; then $(info Cleaning $(1)) rm $(1); fi
 endef
 
-$(TARGET)-release.xcframework: build
+$(TARGET).xcframework: build
 	$(info Building $@)
 	$(call remove-r,include)
 	@mkdir -p include/$(TARGET)
@@ -84,7 +84,7 @@ $(TARGET)-release.xcframework: build
 		-headers include/ \
 		-output $@
 
-$(TARGET).xcframework: build
+$(TARGET)-full.xcframework: build
 	$(info Building $@)
 	$(call remove-r,include)
 	@mkdir -p include/$(TARGET)
@@ -95,12 +95,12 @@ $(TARGET).xcframework: build
 	$(call remove-r,target/sim)
 	@mkdir -p target/sim/$(TARGET).framework/Headers
 
-	@cp include/*.* target/ios/$(TARGET).framework/Headers
+	@cp -r include/** target/ios/$(TARGET).framework/Headers
 	@libtool -static \
 		-o target/ios/$(TARGET).framework/$(TARGET) \
 		$(NATIVE_LIPO_RELEASE)
 
-	@cp include/*.* target/sim/$(TARGET).framework/Headers
+	@cp -r include/** target/sim/$(TARGET).framework/Headers
 	@xcrun -sdk iphonesimulator libtool -static \
 		-o target/sim/$(TARGET).framework/$(TARGET) \
 		$(SIM_LIPO_RELEASE)
