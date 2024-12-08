@@ -35,9 +35,6 @@ jobs:
     - name: Build
       run: make zip
 
-    - name: Copy libem_proxy-ios.a to old name
-      run: cp target/libem_proxy-ios.a target/libem_proxy.a
-
     - name: Upload to release
       uses: IsaacShelton/update-existing-release@v1.3.1
       with:
@@ -47,7 +44,7 @@ jobs:
         files: |
           em_proxy.xcframework.zip
           em_proxy.h
-          target/libem_proxy.a
-          target/libem_proxy-sim.a
+          target/debug/libem_proxy-ios.a
+          target/debug/libem_proxy-sim.a
         body: |
           Commit: https://github.com/${{ github.repository }}/commit/${{ github.sha }}
