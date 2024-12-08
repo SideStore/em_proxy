@@ -87,7 +87,7 @@ $(1): $(2)
 endef
 
 $(eval $(call make-xcframework,$(TARGET).xcframework,build,$(IOS_NATIVE_DEBUG),$(IOS_SIM_DEBUG)))
-$(eval $(call make-xcframework,$(TARGET)-release.xcframework,build,$(IOS_NATIVE_RELEASE),$(IOS_SIM_RELEASE)))
+$(eval $(call make-xcframework,$(TARGET)-release.xcframework,build-release,$(IOS_NATIVE_RELEASE),$(IOS_SIM_RELEASE)))
 
 
 define make-xcframework-full # Idek if this ever worked lol
@@ -123,7 +123,7 @@ $(1): $(2)
 endef
 
 $(eval $(call make-xcframework-full,$(TARGET)-full.xcframework,build,$(IOS_NATIVE_DEBUG),$(IOS_SIM_DEBUG)))
-$(eval $(call make-xcframework-full,$(TARGET)-full-release.xcframework,build,$(IOS_NATIVE_RELEASE),$(IOS_SIM_RELEASE)))
+$(eval $(call make-xcframework-full,$(TARGET)-full-release.xcframework,build-release,$(IOS_NATIVE_RELEASE),$(IOS_SIM_RELEASE)))
 
 
 zip: $(TARGET).xcframework
