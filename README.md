@@ -44,9 +44,15 @@ Or build individual target static libraries using cargo:
 cargo build --release --target aarch64-apple-ios
 ```
 
-## Publishing a new release
+## CI & Publishing Releases
 
-GitHub Actions automatically builds and publishes `EMProxy.xcframework.zip` for each release tag, ready for use in Swift Package Manager via `.binaryTarget`:
+### Continuous Integration
+
+Pushes to branches (`develop`, `main`, `master`), pull requests, and tag pushes all trigger GitHub Actions CI to build and verify `EMProxy.xcframework.zip`.
+
+### Publishing a Release
+
+Only pushing a version tag matching `v*.*.*` will generate and publish a GitHub Release with `EMProxy.xcframework.zip`, ready for use in Swift Package Manager via `.binaryTarget`:
 
 ```swift
 .binaryTarget(
@@ -57,6 +63,7 @@ GitHub Actions automatically builds and publishes `EMProxy.xcframework.zip` for 
 ```
 
 To publish a release:
+
 - Push a version tag matching `v*.*.*` (e.g. `v0.1.0`):
 
 ```sh
