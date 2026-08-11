@@ -1,5 +1,4 @@
 /target
-/Cargo.lock
 /em_proxy.xcframework
 /em_proxy.xcframework.zip
 *.a
@@ -10,4 +9,5 @@
 .build
 .swiftpm
 target
-/em_proxy.xcodeproj/xcuserdata/mahee96.xcuserdatad/xcschemes/xcschememanagement.plist
+libs/
+**/xcschememanagement.plist

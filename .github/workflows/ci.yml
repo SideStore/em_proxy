@@ -43,7 +43,7 @@ jobs:
       - name: Package XCFramework bundle
         shell: bash
         run: |
-          zip -r EMProxy.xcframework.zip lib/EMProxy.xcframework
+          zip -r EMProxy.xcframework.zip libs/EMProxy.xcframework
           openssl dgst -sha256 EMProxy.xcframework.zip
 
       - name: Upload XCFramework artifact

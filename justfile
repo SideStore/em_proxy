@@ -1,16 +1,12 @@
 xcframework: apple-build
-  rm -rf lib/EMProxy.xcframework
-  rm -rf libs
-  mkdir libs
-  cp target/aarch64-apple-ios-sim/release/libem_proxy.a libs/em_proxy-ios-sim.a
-  cp target/aarch64-apple-darwin/release/libem_proxy.a libs/em_proxy-macos.a
+  rm -rf   libs
+  mkdir -p libs
 
-  mkdir -p lib
   xcodebuild -create-xcframework \
     -library target/aarch64-apple-ios/release/libem_proxy.a -headers include \
-    -library libs/em_proxy-ios-sim.a -headers include \
-    -library libs/em_proxy-macos.a -headers include \
-    -output lib/EMProxy.xcframework
+    -library target/aarch64-apple-ios-sim/release/libem_proxy.a -headers include \
+    -library target/aarch64-apple-darwin/release/libem_proxy.a -headers include \
+    -output  libs/EMProxy.xcframework
 
 apple-build:
   BINDGEN_EXTRA_CLANG_ARGS="--sysroot=$(xcrun --sdk iphoneos --show-sdk-path)" \
