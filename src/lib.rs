@@ -15,7 +15,40 @@ use libc::{c_char, c_int};
 use log::error;
 use once_cell::sync::Lazy;
 
+pub type LogCallbackFn = unsafe extern "C" fn(level: c_int, msg: *const c_char) -> bool;
+
 static GLOBAL_HANDLE: Lazy<Mutex<Option<Sender<()>>>> = Lazy::new(|| Mutex::new(None));
+static LOG_CALLBACK: Lazy<Mutex<Option<LogCallbackFn>>> = Lazy::new(|| Mutex::new(None));
+
+#[no_mangle]
+pub unsafe extern "C" fn set_log_callback(cb: Option<LogCallbackFn>) {
+    let mut lock = LOG_CALLBACK.lock().unwrap_or_else(|e| e.into_inner());
+    *lock = cb;
+}
+
+fn log_msg(level: c_int, msg: String) {
+    let cb = {
+        let lock = LOG_CALLBACK.lock().unwrap_or_else(|e| e.into_inner());
+        *lock
+    };
+
+    if let Some(cb) = cb {
+        if let Ok(c_msg) = std::ffi::CString::new(msg.clone()) {
+            unsafe {
+                if cb(level, c_msg.as_ptr()) {
+                    return;
+                }
+            }
+        }
+    }
+
+    match level {
+        0 => println!("[DEBUG] {}", msg),
+        1 => println!("[INFO] {}", msg),
+        2 => println!("[WARN] {}", msg),
+        _ => error!("{}", msg),
+    }
+}
 
 macro_rules! base_path {
     () => {
@@ -31,35 +64,51 @@ pub fn start_loopback(bind_addr: SocketAddrV4) -> Sender<()> {
     let server_private = include_str!(concat!(base_path!(), "/server_privatekey"))[..44].to_string();
     let client_public = include_str!(concat!(base_path!(), "/client_publickey"))[..44].to_string();
 
-    let server_private = X25519SecretKey::from_str(&server_private).unwrap();
-    let client_public = X25519PublicKey::from_str(&client_public).unwrap();
+    let server_private = match X25519SecretKey::from_str(&server_private) {
+        Ok(k) => k,
+        Err(e) => {
+            log_msg(3, format!("Failed to parse server private key: {:?}", e));
+            return tx;
+        }
+    };
+    let client_public = match X25519PublicKey::from_str(&client_public) {
+        Ok(k) => k,
+        Err(e) => {
+            log_msg(3, format!("Failed to parse client public key: {:?}", e));
+            return tx;
+        }
+    };
 
-    let tun = boringtun::noise::Tunn::new(
+    let tun = match boringtun::noise::Tunn::new(
         Arc::new(server_private),
         Arc::new(client_public),
         None,
         None,
         0,
         None,
-    )
-    .unwrap();
+    ) {
+        Ok(t) => t,
+        Err(e) => {
+            log_msg(3, format!("Failed to initialize boringtun Tunn: {:?}", e));
+            return tx;
+        }
+    };
 
     std::thread::spawn(move || {
         // Try and wait for the socket to become available
         let mut socket;
         loop {
             match std::net::UdpSocket::bind(bind_addr) {
-                Ok(s) => socket = s,
-                Err(e) => match e.kind() {
-                    std::io::ErrorKind::AddrInUse => {
-                        println!("EMP address in use, retrying...");
-                        std::thread::sleep(std::time::Duration::from_millis(50));
-                        continue;
-                    }
-                    _ => panic!(),
-                },
+                Ok(s) => {
+                    socket = s;
+                    break;
+                }
+                Err(e) => {
+                    log_msg(2, format!("EMP socket bind error: {:?}, retrying...", e));
+                    std::thread::sleep(std::time::Duration::from_millis(50));
+                    continue;
+                }
             };
-            break;
         }
 
         let mut ready = false;
@@ -68,7 +117,7 @@ pub fn start_loopback(bind_addr: SocketAddrV4) -> Sender<()> {
             match socket.set_read_timeout(Some(std::time::Duration::from_millis(5))) {
                 Ok(_) => {}
                 Err(e) => {
-                    println!("Unable to set UDP timeout: {:?}\nRebinding to socket", e);
+                    log_msg(2, format!("Unable to set UDP timeout: {:?}\nRebinding to socket", e));
                     std::mem::drop(socket);
 
                     // Wait until we can rebind to the socket
@@ -77,11 +126,11 @@ pub fn start_loopback(bind_addr: SocketAddrV4) -> Sender<()> {
                         socket = match std::net::UdpSocket::bind(bind_addr) {
                             Ok(s) => s,
                             Err(e) => {
-                                println!("Socket not dropped: {:?}", e);
+                                log_msg(2, format!("Socket not dropped: {:?}", e));
                                 continue;
                             }
                         };
-                        println!("Rebound to socket!");
+                        log_msg(1, "Rebound to socket!".to_string());
                         break;
                     }
                     continue;
@@ -100,20 +149,24 @@ pub fn start_loopback(bind_addr: SocketAddrV4) -> Sender<()> {
                             // literally nobody knows what to do with this
                             if !ready {
                                 ready = true;
-                                println!("Ready!!");
+                                log_msg(1, "Ready!!".to_string());
                             }
                         }
                         boringtun::noise::TunnResult::Err(_) => {
                             // don't care
                         }
                         boringtun::noise::TunnResult::WriteToNetwork(b) => {
-                            socket.send_to(b, endpoint).unwrap();
+                            if let Err(e) = socket.send_to(b, endpoint) {
+                                log_msg(3, format!("Error sending UDP packet: {:?}", e));
+                            }
                             loop {
                                 let p =
                                     tun.decapsulate(Some(endpoint.ip()), &[], &mut unencrypted_buf);
                                 match p {
                                     boringtun::noise::TunnResult::WriteToNetwork(b) => {
-                                        socket.send_to(b, endpoint).unwrap();
+                                        if let Err(e) = socket.send_to(b, endpoint) {
+                                            log_msg(3, format!("Error sending UDP packet: {:?}", e));
+                                        }
                                     }
                                     _ => break,
                                 }
@@ -129,15 +182,17 @@ pub fn start_loopback(bind_addr: SocketAddrV4) -> Sender<()> {
                             let mut buf = [0_u8; 2048];
                             match tun.encapsulate(b, &mut buf) {
                                 boringtun::noise::TunnResult::WriteToNetwork(b) => {
-                                    socket.send_to(b, endpoint).unwrap();
+                                    if let Err(e) = socket.send_to(b, endpoint) {
+                                        log_msg(3, format!("Error sending UDP packet: {:?}", e));
+                                    }
                                 }
                                 _ => {
-                                    println!("Unexpected result");
+                                    log_msg(2, "Unexpected result".to_string());
                                 }
                             }
                         }
                         boringtun::noise::TunnResult::WriteToTunnelV6(_b, _addr) => {
-                            panic!("IPv6 not supported");
+                            log_msg(2, "IPv6 packet ignored".to_string());
                         }
                     }
                 }
@@ -145,21 +200,22 @@ pub fn start_loopback(bind_addr: SocketAddrV4) -> Sender<()> {
                     std::io::ErrorKind::WouldBlock => {}
                     std::io::ErrorKind::TimedOut => {}
                     _ => {
-                        error!("Error receiving: {}", e);
-                        return;
+                        log_msg(3, format!("Error receiving: {}", e));
+                        std::thread::sleep(std::time::Duration::from_millis(10));
+                        continue;
                     }
                 },
             }
             // Die if instructed or if the handle was destroyed
             match rx.try_recv() {
                 Ok(_) => {
-                    println!("EMP instructed to die");
+                    log_msg(1, "EMP instructed to die".to_string());
                     return;
                 }
                 Err(e) => match e {
                     std::sync::mpsc::TryRecvError::Empty => continue,
                     std::sync::mpsc::TryRecvError::Disconnected => {
-                        println!("Handle has been destroyed");
+                        log_msg(1, "Handle has been destroyed".to_string());
                         return;
                     }
                 },
@@ -180,9 +236,10 @@ pub fn start_loopback(bind_addr: SocketAddrV4) -> Sender<()> {
 /// # Safety
 /// Don't be stupid
 pub unsafe extern "C" fn start_emotional_damage(bind_addr: *const c_char) -> c_int {
+    let mut handle_lock = GLOBAL_HANDLE.lock().unwrap_or_else(|e| e.into_inner());
     // Check if the proxy exists
-    if GLOBAL_HANDLE.lock().unwrap().is_some() {
-        println!("Proxy already exists, skipping");
+    if handle_lock.is_some() {
+        log_msg(1, "Proxy already exists, skipping".to_string());
         return 0;
     }
     // Check the address
@@ -200,7 +257,7 @@ pub unsafe extern "C" fn start_emotional_damage(bind_addr: *const c_char) -> c_i
     };
     let handle = start_loopback(address);
 
-    *GLOBAL_HANDLE.lock().unwrap() = Some(handle);
+    *handle_lock = Some(handle);
 
     0
 }
@@ -214,13 +271,14 @@ pub unsafe extern "C" fn start_emotional_damage(bind_addr: *const c_char) -> c_i
 /// # Safety
 /// Don't be stupid
 pub unsafe extern "C" fn stop_emotional_damage() {
-    let sender = GLOBAL_HANDLE.lock().unwrap().clone();
+    let mut handle_lock = GLOBAL_HANDLE.lock().unwrap_or_else(|e| e.into_inner());
+    let sender = handle_lock.clone();
     if let Some(sender) = sender {
         if sender.send(()).is_ok() {
             //
         }
     }
-    *GLOBAL_HANDLE.lock().unwrap() = None;
+    *handle_lock = None;
 }
 
 #[no_mangle]

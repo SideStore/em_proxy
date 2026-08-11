@@ -7,6 +7,18 @@
 #include <stdlib.h>
 
 /**
+ * Callback signature for custom logging.
+ * Return true if the log was consumed by the caller, false to fall back to internal logging.
+ * level: 0 = DEBUG, 1 = INFO, 2 = WARN, 3 = ERROR
+ */
+typedef bool (*EMProxyLogCallback)(int level, const char *message);
+
+/**
+ * Sets a custom logging callback function.
+ */
+void set_log_callback(EMProxyLogCallback cb);
+
+/**
  * Starts your emotional damage
  * # Arguments
  * * `bind_addr` - The UDP socket to listen to
