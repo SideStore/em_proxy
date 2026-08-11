@@ -19,7 +19,7 @@ static GLOBAL_HANDLE: Lazy<Mutex<Option<Sender<()>>>> = Lazy::new(|| Mutex::new(
 
 macro_rules! base_path {
     () => {
-        "../../keys"
+        "../keys"
     };
 }
 

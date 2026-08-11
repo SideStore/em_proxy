@@ -1,0 +1,117 @@
+name: CI
+
+on:
+  push:
+    branches: [develop, main, master]
+    tags: ["v*.*.*"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  macos:
+    name: macOS Build
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: "true"
+
+      - name: Install just
+        run: |
+          brew install just
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: macos-cargo-${{ hashFiles('**/Cargo.lock', 'justfile') }}
+          restore-keys: macos-cargo-
+
+      - name: Install rustup targets
+        run: |
+          rustup target add aarch64-apple-ios && \
+          rustup target add aarch64-apple-ios-sim && \
+          rustup target add aarch64-apple-darwin
+
+      - name: Build XCFramework
+        run: |
+          just xcframework
+
+      - name: Package XCFramework bundle
+        shell: bash
+        run: |
+          zip -r EMProxy.xcframework.zip lib/EMProxy.xcframework
+          openssl dgst -sha256 EMProxy.xcframework.zip
+
+      - name: Upload XCFramework artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: em_proxy-xcframework
+          path: EMProxy.xcframework.zip
+
+  release:
+    name: Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs:
+      - macos
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate release update policy
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          pushed_tag="${GITHUB_REF_NAME}"
+          echo "Pushed tag: ${pushed_tag}"
+
+          latest_release_tag=$(gh release list --repo "${GITHUB_REPOSITORY}" --limit 1 --json tagName -q '.[0].tagName' 2>/dev/null || echo "")
+          echo "Latest release tag on GitHub: ${latest_release_tag}"
+
+          if gh release view "${pushed_tag}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            echo "Release for tag '${pushed_tag}' already exists on GitHub."
+            if [[ -n "${latest_release_tag}" && "${pushed_tag}" != "${latest_release_tag}" ]]; then
+              echo "::error::Correcting previous releases (other than last release) is disallowed (pushed: '${pushed_tag}', latest release: '${latest_release_tag}')."
+              exit 1
+            else
+              echo "Pushed tag matches the latest release tag. Update allowed."
+            fi
+          else
+            echo "Release for tag '${pushed_tag}' does not exist yet. New release creation allowed."
+          fi
+
+      - name: Download XCFramework artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: em_proxy-xcframework
+          path: artifacts/em_proxy-xcframework
+
+      - name: Package release archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          tag="${GITHUB_REF_NAME}"
+          cp artifacts/em_proxy-xcframework/EMProxy.xcframework.zip "release/EMProxy.xcframework.zip"
+          (cd release && sha256sum "EMProxy.xcframework.zip" > "EMProxy.xcframework.zip.sha256")
+          ls -la release
+
+      - name: Create or Update GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          target_commitish: ${{ github.sha }}
+          files: release/*
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+          make_latest: true

@@ -1,3 +1,0 @@
-[submodule "Dependencies/boringtun"]
-	path = Dependencies/boringtun
-	url = https://github.com/cloudflare/boringtun
