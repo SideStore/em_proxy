@@ -1,0 +1,4 @@
+module EMProxy {
+    header "em_proxy.h"
+    export *
+}
