@@ -17,13 +17,19 @@ use once_cell::sync::Lazy;
 
 static GLOBAL_HANDLE: Lazy<Mutex<Option<Sender<()>>>> = Lazy::new(|| Mutex::new(None));
 
+macro_rules! base_path {
+    () => {
+        "../../keys"
+    };
+}
+
 pub fn start_loopback(bind_addr: SocketAddrV4) -> Sender<()> {
     // Create the handle
     let (tx, rx) = channel();
 
     // Read the keys to memory
-    let server_private = include_str!("../keys/server_privatekey")[..44].to_string();
-    let client_public = include_str!("../keys/client_publickey")[..44].to_string();
+    let server_private = include_str!(concat!(base_path!(), "/server_privatekey"))[..44].to_string();
+    let client_public = include_str!(concat!(base_path!(), "/client_publickey"))[..44].to_string();
 
     let server_private = X25519SecretKey::from_str(&server_private).unwrap();
     let client_public = X25519PublicKey::from_str(&client_public).unwrap();

@@ -1,4 +1,0 @@
-module NativeBridge {
-    header "em_proxy.h"
-    export *
-}

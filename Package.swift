@@ -14,13 +14,10 @@ let package = Package(
         )
     ],
     targets: [
-        // C / C++ Native Bridge
-        .target(
+        .binaryTarget(
             name: "NativeBridge",
-            path: "NativeBridge",
-            publicHeadersPath: "include"
+            path: "lib/EMProxyFFI.xcframework"
         ),
-        // Main Swift Target
         .target(
             name: "em_proxy",
             dependencies: ["NativeBridge"],
