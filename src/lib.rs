@@ -332,4 +332,3 @@ pub extern "C" fn test_emotional_damage(timeout: c_int) -> c_int {
         }
     }
 }
-}
