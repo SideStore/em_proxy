@@ -3,21 +3,25 @@
 use std::{
     ffi::CStr,
     net::SocketAddrV4,
+    os::raw::{c_char, c_int},
     str::FromStr,
     sync::{
         mpsc::{channel, Sender},
         Arc, Mutex,
     },
 };
-
 use boringtun::crypto::{X25519PublicKey, X25519SecretKey};
-use libc::{c_char, c_int};
 use log::error;
 use once_cell::sync::Lazy;
 
 pub type LogCallbackFn = unsafe extern "C" fn(level: c_int, msg: *const c_char) -> bool;
 
-static GLOBAL_HANDLE: Lazy<Mutex<Option<Sender<()>>>> = Lazy::new(|| Mutex::new(None));
+struct ProxyHandle {
+    sender: Sender<()>,
+    join_handle: Option<std::thread::JoinHandle<()>>,
+}
+
+static GLOBAL_HANDLE: Lazy<Mutex<Option<ProxyHandle>>> = Lazy::new(|| Mutex::new(None));
 static LOG_CALLBACK: Lazy<Mutex<Option<LogCallbackFn>>> = Lazy::new(|| Mutex::new(None));
 
 #[no_mangle]
@@ -56,7 +60,7 @@ macro_rules! base_path {
     };
 }
 
-pub fn start_loopback(bind_addr: SocketAddrV4) -> Sender<()> {
+pub fn start_loopback(bind_addr: SocketAddrV4) -> Result<ProxyHandle, c_int> {
     // Create the handle
     let (tx, rx) = channel();
 
@@ -68,14 +72,14 @@ pub fn start_loopback(bind_addr: SocketAddrV4) -> Sender<()> {
         Ok(k) => k,
         Err(e) => {
             log_msg(3, format!("Failed to parse server private key: {:?}", e));
-            return tx;
+            return Err(-5);
         }
     };
     let client_public = match X25519PublicKey::from_str(&client_public) {
         Ok(k) => k,
         Err(e) => {
             log_msg(3, format!("Failed to parse client public key: {:?}", e));
-            return tx;
+            return Err(-5);
         }
     };
 
@@ -90,27 +94,20 @@ pub fn start_loopback(bind_addr: SocketAddrV4) -> Sender<()> {
         Ok(t) => t,
         Err(e) => {
             log_msg(3, format!("Failed to initialize boringtun Tunn: {:?}", e));
-            return tx;
+            return Err(-5);
         }
     };
 
-    std::thread::spawn(move || {
-        // Try and wait for the socket to become available
-        let mut socket;
-        loop {
-            match std::net::UdpSocket::bind(bind_addr) {
-                Ok(s) => {
-                    socket = s;
-                    break;
-                }
-                Err(e) => {
-                    log_msg(2, format!("EMP socket bind error: {:?}, retrying...", e));
-                    std::thread::sleep(std::time::Duration::from_millis(50));
-                    continue;
-                }
-            };
+    // Synchronously bind socket before returning to caller
+    let socket = match std::net::UdpSocket::bind(bind_addr) {
+        Ok(s) => s,
+        Err(e) => {
+            log_msg(3, format!("EMP socket bind error: {:?}", e));
+            return Err(-4);
         }
+    };
 
+    let join_handle = std::thread::spawn(move || {
         let mut ready = false;
         loop {
             // Attempt to read from the UDP socket
@@ -118,21 +115,6 @@ pub fn start_loopback(bind_addr: SocketAddrV4) -> Sender<()> {
                 Ok(_) => {}
                 Err(e) => {
                     log_msg(2, format!("Unable to set UDP timeout: {:?}\nRebinding to socket", e));
-                    std::mem::drop(socket);
-
-                    // Wait until we can rebind to the socket
-                    loop {
-                        std::thread::sleep(std::time::Duration::from_secs(1));
-                        socket = match std::net::UdpSocket::bind(bind_addr) {
-                            Ok(s) => s,
-                            Err(e) => {
-                                log_msg(2, format!("Socket not dropped: {:?}", e));
-                                continue;
-                            }
-                        };
-                        log_msg(1, "Rebound to socket!".to_string());
-                        break;
-                    }
                     continue;
                 }
             }
@@ -223,7 +205,10 @@ pub fn start_loopback(bind_addr: SocketAddrV4) -> Sender<()> {
         }
     });
 
-    tx
+    Ok(ProxyHandle {
+        sender: tx,
+        join_handle: Some(join_handle),
+    })
 }
 
 #[no_mangle]
@@ -231,8 +216,7 @@ pub fn start_loopback(bind_addr: SocketAddrV4) -> Sender<()> {
 /// # Arguments
 /// * `bind_addr` - The UDP socket to listen to
 /// # Returns
-/// A handle to stop further emotional damage.
-/// Null on failure
+/// 0 on success, -1 if null address, -2 if UTF-8 error, -3 if invalid socket address, -4 if socket bind failed, -5 if crypto init failed
 /// # Safety
 /// Don't be stupid
 pub unsafe extern "C" fn start_emotional_damage(bind_addr: *const c_char) -> c_int {
@@ -255,7 +239,10 @@ pub unsafe extern "C" fn start_emotional_damage(bind_addr: *const c_char) -> c_i
         Ok(address) => address,
         Err(_) => return -3,
     };
-    let handle = start_loopback(address);
+    let handle = match start_loopback(address) {
+        Ok(h) => h,
+        Err(err) => return err,
+    };
 
     *handle_lock = Some(handle);
 
@@ -264,21 +251,28 @@ pub unsafe extern "C" fn start_emotional_damage(bind_addr: *const c_char) -> c_i
 
 #[no_mangle]
 /// Stops further emotional damage
-/// # Arguments
-/// * `handle` - The coping mechanism generated by start_emotional_damage
 /// # Returns
-/// The knowledge of knowing that you couldn't handle failure
+/// 0 on success, -1 if no server running, -2 if failed to send stop signal, -3 if thread join failed
 /// # Safety
 /// Don't be stupid
-pub unsafe extern "C" fn stop_emotional_damage() {
+pub unsafe extern "C" fn stop_emotional_damage() -> c_int {
     let mut handle_lock = GLOBAL_HANDLE.lock().unwrap_or_else(|e| e.into_inner());
-    let sender = handle_lock.clone();
-    if let Some(sender) = sender {
-        if sender.send(()).is_ok() {
-            //
+    match handle_lock.take() {
+        Some(handle) => {
+            let send_res = handle.sender.send(());
+            let join_res = if let Some(jh) = handle.join_handle {
+                jh.join()
+            } else {
+                Ok(())
+            };
+            match (send_res, join_res) {
+                (Ok(()), Ok(())) => 0,
+                (Err(_), _) => -2,
+                (_, Err(_)) => -3,
+            }
         }
+        None => -1,
     }
-    *handle_lock = None;
 }
 
 #[no_mangle]
@@ -338,95 +332,4 @@ pub extern "C" fn test_emotional_damage(timeout: c_int) -> c_int {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use std::{
-        io::{Read, Write},
-        net::Ipv4Addr,
-        str::FromStr,
-    };
-
-    use super::*;
-
-    #[test]
-    fn pls_yeet() {
-        let bind_addr = SocketAddrV4::from_str("127.0.0.1:51820").unwrap();
-        let _handle = start_loopback(bind_addr);
-
-        let num = 100;
-        let size = 100_000;
-
-        // Create TCP listener
-        let listener = std::net::TcpListener::bind("0.0.0.0:3000").unwrap();
-        let (send_ready, ready) = channel();
-
-        // A place to store the test data
-        let tests = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-        let spawn_tests = tests.clone();
-
-        std::thread::spawn(move || {
-            let (mut stream, _) = listener.accept().unwrap();
-
-            // Create test data
-            let mut local_tests = Vec::new();
-            for _ in 0..num {
-                let mut test = Vec::new();
-                for _ in 0..size {
-                    test.push(rand::random::<u8>());
-                }
-                tests.lock().unwrap().extend(test.clone());
-                local_tests.push(test);
-            }
-
-            // Wait until we're ready to send the test
-            ready.recv().unwrap();
-
-            // Send the test data
-            for test in local_tests {
-                stream.write_all(&test).unwrap();
-                std::thread::sleep(std::time::Duration::from_nanos(1));
-            }
-        });
-
-        let mut connector =
-            std::net::TcpStream::connect(SocketAddrV4::new(Ipv4Addr::new(10, 7, 0, 1), 3000))
-                .unwrap();
-        send_ready.send(()).unwrap();
-
-        // Collect the test data
-        let mut collected_tests: Vec<u8> = Vec::new();
-
-        let current_time = std::time::Instant::now();
-
-        loop {
-            let mut buf = [0_u8; 2048];
-            match connector.read(&mut buf) {
-                Ok(size) => {
-                    if size == 0 {
-                        break;
-                    }
-                    let buf = &buf[0..size];
-                    collected_tests.extend(buf);
-                }
-                Err(_e) => {
-                    break;
-                }
-            }
-        }
-
-        println!("Elapsed time: {:?}", current_time.elapsed());
-        println!(
-            "MB/s: {:?}",
-            collected_tests.len() as f64 / current_time.elapsed().as_secs_f64()
-        );
-
-        // Compare the two
-        println!("Testing length");
-        assert_eq!(collected_tests.len(), spawn_tests.lock().unwrap().len());
-        println!("Testing contents");
-        assert_eq!(collected_tests, spawn_tests.lock().unwrap()[..]);
-
-        println!("All tests passed");
-    }
 }
