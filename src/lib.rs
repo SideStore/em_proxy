@@ -4,21 +4,22 @@ use std::{
     ffi::CStr,
     net::SocketAddrV4,
     os::raw::{c_char, c_int},
-    str::FromStr,
     sync::{
         mpsc::{channel, Sender},
-        Arc, Mutex,
+        Mutex,
     },
 };
-use boringtun::crypto::{X25519PublicKey, X25519SecretKey};
+use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
+use base64::Engine;
+use boringtun::x25519::{PublicKey, StaticSecret};
 use log::error;
 use once_cell::sync::Lazy;
 
 pub type LogCallbackFn = unsafe extern "C" fn(level: c_int, msg: *const c_char) -> bool;
 
-struct ProxyHandle {
-    sender: Sender<()>,
-    join_handle: Option<std::thread::JoinHandle<()>>,
+pub struct ProxyHandle {
+    pub sender: Sender<()>,
+    pub join_handle: Option<std::thread::JoinHandle<()>>,
 }
 
 static GLOBAL_HANDLE: Lazy<Mutex<Option<ProxyHandle>>> = Lazy::new(|| Mutex::new(None));
@@ -66,37 +67,46 @@ pub fn start_loopback(bind_addr: SocketAddrV4) -> Result<ProxyHandle, c_int> {
 
     // Read the keys to memory
     let server_private = include_str!(concat!(base_path!(), "/server_privatekey"))[..44].to_string();
-    let client_public = include_str!(concat!(base_path!(), "/client_publickey"))[..44].to_string();
+    let client_public  = include_str!(concat!(base_path!(), "/client_publickey"))[..44].to_string();
 
-    let server_private = match X25519SecretKey::from_str(&server_private) {
-        Ok(k) => k,
+    let server_private_bytes = match BASE64_STANDARD.decode(&server_private) {
+        Ok(b) => match <[u8; 32]>::try_from(b.as_slice()) {
+            Ok(arr) => arr,
+            Err(_) => {
+                log_msg(3, "Failed to parse server private key: invalid length".to_string());
+                return Err(-5);
+            }
+        },
         Err(e) => {
             log_msg(3, format!("Failed to parse server private key: {:?}", e));
             return Err(-5);
         }
     };
-    let client_public = match X25519PublicKey::from_str(&client_public) {
-        Ok(k) => k,
+    let server_private = StaticSecret::from(server_private_bytes);
+
+    let client_public_bytes = match BASE64_STANDARD.decode(&client_public) {
+        Ok(b) => match <[u8; 32]>::try_from(b.as_slice()) {
+            Ok(arr) => arr,
+            Err(_) => {
+                log_msg(3, "Failed to parse client public key: invalid length".to_string());
+                return Err(-5);
+            }
+        },
         Err(e) => {
             log_msg(3, format!("Failed to parse client public key: {:?}", e));
             return Err(-5);
         }
     };
+    let client_public = PublicKey::from(client_public_bytes);
 
-    let tun = match boringtun::noise::Tunn::new(
-        Arc::new(server_private),
-        Arc::new(client_public),
+    let mut tun = boringtun::noise::Tunn::new(
+        server_private,
+        client_public,
         None,
         None,
         0,
         None,
-    ) {
-        Ok(t) => t,
-        Err(e) => {
-            log_msg(3, format!("Failed to initialize boringtun Tunn: {:?}", e));
-            return Err(-5);
-        }
-    };
+    );
 
     // Synchronously bind socket before returning to caller
     let socket = match std::net::UdpSocket::bind(bind_addr) {
